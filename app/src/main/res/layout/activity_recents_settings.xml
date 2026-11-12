@@ -24,15 +24,15 @@
             </RelativeLayout>
             <TextView style="@style/SettingsSectionLabelStyle" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:text="@string/included_file_types" />
-            <RelativeLayout style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <RelativeLayout android:id="@+id/recents_images_holder" style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
                 <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_images"
                     style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/images" />
             </RelativeLayout>
-            <RelativeLayout style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <RelativeLayout android:id="@+id/recents_videos_holder" style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
                 <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_videos"
                     style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/videos" />
             </RelativeLayout>
-            <RelativeLayout style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
+            <RelativeLayout android:id="@+id/recents_other_holder" style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
                 <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_other"
                     style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/other_files" />
             </RelativeLayout>

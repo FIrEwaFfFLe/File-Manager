@@ -23,6 +23,9 @@ class RecentsSettingsActivity : SimpleActivity() {
         binding.recentsImages.isChecked = config.recentsImages
         binding.recentsVideos.isChecked = config.recentsVideos
         binding.recentsOther.isChecked = config.recentsOther
+        binding.recentsImagesHolder.setOnClickListener { binding.recentsImages.toggle() }
+        binding.recentsVideosHolder.setOnClickListener { binding.recentsVideos.toggle() }
+        binding.recentsOtherHolder.setOnClickListener { binding.recentsOther.toggle() }
         binding.recentsImages.setOnCheckedChangeListener { _, value -> config.recentsImages = value }
         binding.recentsVideos.setOnCheckedChangeListener { _, value -> config.recentsVideos = value }
         binding.recentsOther.setOnCheckedChangeListener { _, value -> config.recentsOther = value }
