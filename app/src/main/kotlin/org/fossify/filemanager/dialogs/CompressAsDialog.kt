@@ -9,7 +9,7 @@ import org.fossify.filemanager.R
 import org.fossify.filemanager.databinding.DialogCompressAsBinding
 import org.fossify.filemanager.extensions.config
 
-class CompressAsDialog(val activity: BaseSimpleActivity, val path: String, val callback: (destination: String, password: String?) -> Unit) {
+class CompressAsDialog(val activity: BaseSimpleActivity, val path: String, val callback: (destination: String, password: String?, maxArchiveSizeBytes: Long?) -> Unit) {
     private val binding = DialogCompressAsBinding.inflate(activity.layoutInflater)
 
     init {
@@ -20,6 +20,9 @@ class CompressAsDialog(val activity: BaseSimpleActivity, val path: String, val c
 
         binding.apply {
             filenameValue.setText(baseFilename)
+            presetTwoGib.setOnClickListener { maxArchiveSize.setText("2048") }
+            presetThreeGib.setOnClickListener { maxArchiveSize.setText("3072") }
+            presetThreePointFiveGib.setOnClickListener { maxArchiveSize.setText("3584") }
 
             folder.setText(activity.humanizePath(realPath))
             folder.setOnClickListener {
@@ -50,6 +53,17 @@ class CompressAsDialog(val activity: BaseSimpleActivity, val path: String, val c
                                 return@OnClickListener
                             }
                         }
+                        val sizeText = binding.maxArchiveSize.text?.toString()?.trim().orEmpty()
+                        val maxArchiveSizeBytes = if (sizeText.isEmpty()) {
+                            null
+                        } else {
+                            val sizeMib = sizeText.toLongOrNull()
+                            if (sizeMib == null || sizeMib !in 1L..4095L) {
+                                binding.maxArchiveSize.error = activity.getString(R.string.archive_size_limit_error)
+                                return@OnClickListener
+                            }
+                            sizeMib * 1024L * 1024L
+                        }
                         when {
                             name.isEmpty() -> activity.toast(R.string.empty_name)
                             name.isAValidFilename() -> {
@@ -60,7 +74,7 @@ class CompressAsDialog(val activity: BaseSimpleActivity, val path: String, val c
                                 }
 
                                 alertDialog.dismiss()
-                                callback(newPath, password)
+                                callback(newPath, password, maxArchiveSizeBytes)
                             }
 
                             else -> activity.toast(R.string.invalid_name)

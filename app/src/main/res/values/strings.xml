@@ -37,6 +37,18 @@
     <string name="compression_successful">Compression successful</string>
     <string name="decompression_successful">Decompression successful</string>
     <string name="compressing_failed">Compressing failed</string>
+    <string name="scanning">Scanning</string>
+    <string name="verifying_archives">Verifying archive</string>
+    <string name="finalizing_archive">Finalizing archive</string>
+    <string name="max_archive_size_mib">Maximum archive size (MiB, optional)</string>
+    <string name="fat32_archive_presets">FAT32 presets: 2048 MiB = 2 GiB, 3072 MiB = 3 GiB, 3584 MiB = 3.5 GiB</string>
+    <string name="archive_size_limit_error">Enter a whole number from 1 to 4095 MiB, or leave it empty.</string>
+    <string name="smart_compression_progress_title">Creating verified archives</string>
+    <string name="smart_compression_progress_detail">%1$s · archive %2$d · %3$d verified · %4$d/%5$d items</string>
+    <string name="compression_cancel_requested">Cancelling safely…</string>
+    <string name="smart_compression_success">Created and verified %1$d independent ZIP archives.</string>
+    <string name="compression_space_warning">Available space may be less than the maximum archive size or cannot be confirmed for this SAF/USB destination. Continue? Source files are preserved; if writing fails, previously verified archives remain and the incomplete temporary archive is removed where possible.</string>
+    <string name="smart_compression_limit_explanation">The limit is strict and measured in MiB (1 MiB = 1,048,576 bytes). Each archive will be smaller than the selected limit. Maximum: 4095 MiB, below FAT32’s 4 GiB per-file ceiling. Free space is checked where available; SAF/USB providers may not report it.</string>
     <string name="decompressing_failed">Decompressing failed</string>
 
     <!-- Favorites -->

@@ -19,6 +19,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.viewbinding.ViewBinding
+import androidx.documentfile.provider.DocumentFile
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -56,6 +57,7 @@ import org.fossify.commons.extensions.formatDate
 import org.fossify.commons.extensions.formatSize
 import org.fossify.commons.extensions.getAndroidSAFFileItems
 import org.fossify.commons.extensions.getAndroidSAFUri
+import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.getColoredDrawableWithColor
 import org.fossify.commons.extensions.getDefaultCopyDestinationPath
 import org.fossify.commons.extensions.getDocumentFile
@@ -75,6 +77,7 @@ import org.fossify.commons.extensions.hasOTGConnected
 import org.fossify.commons.extensions.highlightTextPart
 import org.fossify.commons.extensions.isPathOnOTG
 import org.fossify.commons.extensions.isRestrictedSAFOnlyRoot
+import org.fossify.commons.extensions.renameAndroidSAFDocument
 import org.fossify.commons.extensions.relativizeWith
 import org.fossify.commons.extensions.setupViewBackground
 import org.fossify.commons.extensions.showErrorToast
@@ -97,6 +100,7 @@ import org.fossify.filemanager.databinding.ItemFileDirListBinding
 import org.fossify.filemanager.databinding.ItemFileGridBinding
 import org.fossify.filemanager.databinding.ItemSectionBinding
 import org.fossify.filemanager.dialogs.CompressAsDialog
+import org.fossify.filemanager.dialogs.SmartCompressionProgressDialog
 import org.fossify.filemanager.extensions.config
 import org.fossify.filemanager.extensions.isPathOnRoot
 import org.fossify.filemanager.extensions.isZipFile
@@ -111,13 +115,20 @@ import org.fossify.filemanager.helpers.OPEN_AS_OTHER
 import org.fossify.filemanager.helpers.OPEN_AS_TEXT
 import org.fossify.filemanager.helpers.OPEN_AS_VIDEO
 import org.fossify.filemanager.helpers.RootHelpers
+import org.fossify.filemanager.helpers.compression.SmartArchiveSourceCollector
+import org.fossify.filemanager.helpers.compression.SmartArchiveTarget
+import org.fossify.filemanager.helpers.compression.SmartBatchCompressor
+import org.fossify.filemanager.helpers.compression.SmartCompressionProgress
 import org.fossify.filemanager.interfaces.ItemOperationsListener
 import org.fossify.filemanager.models.ListItem
 import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import java.util.LinkedList
 import java.util.Locale
+import java.util.UUID
 
 class ItemsAdapter(
     activity: SimpleActivity,
@@ -605,7 +616,7 @@ class ItemsAdapter(
             return
         }
 
-        CompressAsDialog(activity, firstPath) { destination, password ->
+        CompressAsDialog(activity, firstPath) { destination, password, maxArchiveSizeBytes ->
             activity.handleAndroidSAFDialog(firstPath) { granted ->
                 if (!granted) {
                     return@handleAndroidSAFDialog
@@ -615,18 +626,22 @@ class ItemsAdapter(
                         return@handleSAFDialog
                     }
 
-                    activity.toast(R.string.compressing)
                     val paths = getSelectedFileDirItems().map { it.path }
-                    ensureBackgroundThread {
-                        if (compressPaths(paths, destination, password)) {
-                            activity.runOnUiThread {
-                                activity.toast(R.string.compression_successful)
-                                listener?.refreshFragment()
-                                finishActMode()
+                    if (maxArchiveSizeBytes == null) {
+                        activity.toast(R.string.compressing)
+                        ensureBackgroundThread {
+                            if (compressPaths(paths, destination, password)) {
+                                activity.runOnUiThread {
+                                    activity.toast(R.string.compression_successful)
+                                    listener?.refreshFragment()
+                                    finishActMode()
+                                }
+                            } else {
+                                activity.toast(R.string.compressing_failed)
                             }
-                        } else {
-                            activity.toast(R.string.compressing_failed)
                         }
+                    } else {
+                        beginSmartCompression(paths, destination, password, maxArchiveSizeBytes)
                     }
                 }
             }
@@ -905,6 +920,165 @@ class ItemsAdapter(
             res.close()
         }
         return true
+    }
+
+    private fun beginSmartCompression(paths: List<String>, destination: String, password: String?, limitBytes: Long) {
+        val outputDirectory = destination.getParentPath()
+        val localDirectory = File(outputDirectory)
+        val capacityKnown = localDirectory.isDirectory && !activity.isPathOnOTG(outputDirectory) && !activity.isRestrictedSAFOnlyRoot(outputDirectory)
+        val availableBytes = if (capacityKnown) localDirectory.usableSpace else -1L
+        if (!capacityKnown || availableBytes in 0 until limitBytes) {
+            activity.getAlertDialogBuilder()
+                .setTitle(R.string.compress_as)
+                .setMessage(R.string.compression_space_warning)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.ok) { _, _ -> runSmartCompression(paths, destination, password, limitBytes) }
+                .show()
+        } else {
+            runSmartCompression(paths, destination, password, limitBytes)
+        }
+    }
+
+    private fun runSmartCompression(paths: List<String>, destination: String, password: String?, limitBytes: Long) {
+        val progressDialog = SmartCompressionProgressDialog(activity)
+        val initialTotal = paths.size
+        progressDialog.update(SmartCompressionProgress(SmartCompressionProgress.Stage.SCANNING, 0, 0, 0, initialTotal))
+        ensureBackgroundThread {
+            var result: org.fossify.filemanager.helpers.compression.SmartCompressionResult? = null
+            var error: String? = null
+            try {
+                ensureSmartOutputOutsideSources(paths, destination)
+                val entries = SmartArchiveSourceCollector(activity).collect(paths, { progressDialog.isCancelled.get() }) { scanned ->
+                    val update = SmartCompressionProgress(SmartCompressionProgress.Stage.SCANNING, 0, 0, scanned, scanned)
+                    activity.runOnUiThread { progressDialog.update(update) }
+                }
+                ensureBatchNamesAvailable(destination, entries.size)
+                result = SmartBatchCompressor.compress(
+                    entries = entries,
+                    exclusiveLimitBytes = limitBytes,
+                    password = password,
+                    createTarget = { archiveNumber -> createSmartArchiveTarget(destination, archiveNumber) },
+                    isCancelled = { progressDialog.isCancelled.get() },
+                    onProgress = { update -> activity.runOnUiThread { progressDialog.update(update) } }
+                )
+            } catch (e: Exception) {
+                error = e.message ?: activity.getString(R.string.compressing_failed)
+                if (progressDialog.isCancelled.get() && !error!!.contains("cancel", true)) {
+                    error = "Compression cancelled. Any previously verified archives were kept. $error"
+                }
+            }
+            activity.runOnUiThread {
+                progressDialog.dismiss()
+                if (result != null) {
+                    activity.toast(activity.getString(R.string.smart_compression_success, result!!.archivePaths.size))
+                    listener?.refreshFragment()
+                    finishActMode()
+                } else {
+                    activity.showErrorToast(error ?: activity.getString(R.string.compressing_failed))
+                    listener?.refreshFragment()
+                }
+            }
+        }
+    }
+
+    private fun ensureBatchNamesAvailable(destination: String, maximumArchiveCount: Int) {
+        val directoryPath = destination.getParentPath()
+        val directory = File(directoryPath)
+        val existingNames = if (directory.isDirectory && !activity.isPathOnOTG(directoryPath) && !activity.isRestrictedSAFOnlyRoot(directoryPath)) {
+            directory.listFiles()?.map { it.name }?.toSet() ?: throw IOException("Can't inspect the selected output folder.")
+        } else {
+            val documentDirectory = activity.getDocumentFile(directoryPath)
+                ?: throw IOException("Can't inspect the selected SAF/USB output folder.")
+            if (!documentDirectory.isDirectory || !documentDirectory.canWrite()) throw IOException("The selected output folder is not writable.")
+            documentDirectory.listFiles()?.mapNotNull { it.name }?.toSet()
+                ?: throw IOException("Can't inspect the selected SAF/USB output folder.")
+        }
+        val existingNamesLowercase = existingNames.map { it.lowercase(Locale.ROOT) }.toHashSet()
+        val baseName = destination.getFilenameFromPath().removeSuffix(".zip")
+        for (number in 1..maximumArchiveCount) {
+            val candidate = "${baseName}_${number.toString().padStart(3, '0')}.zip"
+            if (candidate.lowercase(Locale.ROOT) in existingNamesLowercase) {
+                throw IOException("$candidate already exists. Existing files are never overwritten; choose another archive name.")
+            }
+        }
+    }
+
+    private fun ensureSmartOutputOutsideSources(paths: List<String>, destination: String) {
+        val outputDirectory = destination.getParentPath()
+        if (outputDirectory.startsWith("content://")) return
+        val outputPath = runCatching { File(outputDirectory).canonicalPath }.getOrDefault(File(outputDirectory).absolutePath)
+        paths.filter { activity.getIsPathDirectory(it) }.forEach { sourcePath ->
+            if (sourcePath.startsWith("content://")) return@forEach
+            val sourceRoot = runCatching { File(sourcePath).canonicalPath }.getOrDefault(File(sourcePath).absolutePath).trimEnd(File.separatorChar)
+            if (outputPath == sourceRoot || outputPath.startsWith(sourceRoot + File.separator)) {
+                throw IOException("Choose an output folder outside the selected source folders. This keeps the backup output and its temporary files out of the input tree.")
+            }
+        }
+    }
+
+    private fun createSmartArchiveTarget(destination: String, archiveNumber: Int): SmartArchiveTarget {
+        val directory = destination.getParentPath()
+        val baseName = destination.getFilenameFromPath().removeSuffix(".zip")
+        val number = archiveNumber.toString().padStart(3, '0')
+        val finalName = "$directory/${baseName}_$number.zip"
+        if (activity.getDoesFilePathExist(finalName)) throw IOException("$finalName already exists; nothing was overwritten.")
+        val tempPath = "$directory/${baseName}.__partial_${UUID.randomUUID()}.zip"
+        if (activity.getDoesFilePathExist(tempPath)) throw IOException("Couldn't reserve a unique temporary archive name.")
+
+        return object : SmartArchiveTarget {
+            override val finalName: String = finalName
+            override val temporaryName: String = tempPath
+
+            override fun openOutput() = activity.getFileOutputStreamSync(tempPath, "application/zip")
+                ?: throw IOException("Can't write to the selected output folder.")
+
+            override fun openInput() = activity.getFileInputStreamSync(tempPath)
+                ?: throw IOException("Can't reopen the temporary archive for verification.")
+
+            override fun actualSizeBytes(): Long {
+                val file = File(tempPath)
+                if (file.exists()) return file.length()
+                val document = smartDocumentForPath(tempPath)
+                return if (document?.exists() == true) document.length() else -1L
+            }
+
+            override fun publish() {
+                if (activity.getDoesFilePathExist(finalName)) throw IOException("$finalName appeared during compression; it was not overwritten.")
+                val tempFile = File(tempPath)
+                if (tempFile.exists()) {
+                    try {
+                        Files.move(tempFile.toPath(), File(finalName).toPath())
+                    } catch (e: Exception) {
+                        throw IOException("Can't safely publish $finalName: ${e.message ?: "rename failed"}", e)
+                    }
+                } else {
+                    val tempDocument = smartDocumentForPath(tempPath)
+                        ?: throw IOException("The storage provider can't rename the verified temporary archive.")
+                    val renamed = if (activity.isRestrictedSAFOnlyRoot(directory)) {
+                        activity.renameAndroidSAFDocument(tempPath, finalName.getFilenameFromPath())
+                    } else {
+                        tempDocument.renameTo(finalName.getFilenameFromPath())
+                    }
+                    if (!renamed) throw IOException("The storage provider can't rename the verified temporary archive. It remains under its .__partial_ name.")
+                }
+                if (!activity.getDoesFilePathExist(finalName)) throw IOException("The storage provider did not confirm the published archive.")
+            }
+
+            override fun deleteTemporary(): Boolean {
+                val file = File(tempPath)
+                if (file.exists()) return file.delete() || !file.exists()
+                val document = smartDocumentForPath(tempPath) ?: return !activity.getDoesFilePathExist(tempPath)
+                return document.delete() || !document.exists()
+            }
+        }
+    }
+
+    private fun smartDocumentForPath(path: String): DocumentFile? {
+        return if (path.startsWith("content://")) {
+            runCatching { DocumentFile.fromSingleUri(activity, Uri.parse(path)) }.getOrNull()
+        } else {
+            activity.getDocumentFile(path)
+        }
     }
 
     private fun askConfirmDelete() {
