@@ -4,12 +4,8 @@ import android.os.Bundle
 import android.text.InputType
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
-import org.fossify.commons.extensions.getProperPrimaryColor
-import org.fossify.commons.extensions.setupEdgeToEdge
-import org.fossify.commons.extensions.setupMaterialScrollListener
-import org.fossify.commons.extensions.setupTopAppBar
-import org.fossify.commons.extensions.updateTextColors
-import org.fossify.commons.extensions.viewBinding
+import org.fossify.commons.extensions.*
+import org.fossify.commons.helpers.*
 import org.fossify.filemanager.R
 import org.fossify.filemanager.databinding.ActivityRecentsSettingsBinding
 import org.fossify.filemanager.extensions.config

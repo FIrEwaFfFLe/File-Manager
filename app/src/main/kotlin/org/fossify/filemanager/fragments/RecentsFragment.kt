@@ -22,6 +22,7 @@ import org.fossify.commons.views.MyGridLayoutManager
 import org.fossify.commons.views.MyRecyclerView
 import org.fossify.filemanager.activities.MainActivity
 import org.fossify.filemanager.activities.SimpleActivity
+import org.fossify.filemanager.R
 import org.fossify.filemanager.adapters.ItemsAdapter
 import org.fossify.filemanager.databinding.RecentsFragmentBinding
 import org.fossify.filemanager.extensions.config
