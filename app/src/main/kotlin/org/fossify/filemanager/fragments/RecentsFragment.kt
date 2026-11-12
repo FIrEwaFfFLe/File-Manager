@@ -290,39 +290,47 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
             val directoryPath = pendingDirectories.removeFirst()
             if (!queuedPaths.add(directoryPath)) continue
 
-            host.getOTGItems(directoryPath, showHidden, false) { children ->
-                children.forEach { child ->
-                    val source = RecentStorageSourceResolver.classify(child.path, host.config.internalStoragePath, usbRoot)
-                    if (source != RecentStorageSource.USB) return@forEach
-                    if (child.isDirectory) {
-                        pendingDirectories.addLast(child.path)
-                        return@forEach
-                    }
+            try {
+                host.getOTGItems(directoryPath, showHidden, false) { children ->
+                    children.forEach childLoop@{ child ->
+                        try {
+                            val source = RecentStorageSourceResolver.classify(child.path, host.config.internalStoragePath, usbRoot)
+                            if (source != RecentStorageSource.USB) return@childLoop
+                            if (child.isDirectory) {
+                                pendingDirectories.addLast(child.path)
+                                return@childLoop
+                            }
 
-                    val path = child.path
-                    val name = child.name
-                    if ((!showHidden && name.startsWith(".")) || child.modified <= 0L ||
-                        host.getDocumentFile(path)?.canRead() != true ||
-                        !wantedMimeTypes.any { isProperMimeType(it, path, false) }
-                    ) {
-                        return@forEach
-                    }
-                    val type = RecentFileClassifier.classify(path, null)
-                    val included = when (type) {
-                        RecentFileClassifier.Type.IMAGE -> includeImages
-                        RecentFileClassifier.Type.VIDEO -> includeVideos
-                        RecentFileClassifier.Type.OTHER -> includeOther
-                    }
-                    if (!included) return@forEach
+                            val path = child.path
+                            val name = child.name
+                            if ((!showHidden && name.startsWith(".")) || child.modified <= 0L ||
+                                host.getDocumentFile(path)?.canRead() != true ||
+                                !wantedMimeTypes.any { isProperMimeType(it, path, false) }
+                            ) {
+                                return@childLoop
+                            }
+                            val type = RecentFileClassifier.classify(path, null)
+                            val included = when (type) {
+                                RecentFileClassifier.Type.IMAGE -> includeImages
+                                RecentFileClassifier.Type.VIDEO -> includeVideos
+                                RecentFileClassifier.Type.OTHER -> includeOther
+                            }
+                            if (!included) return@childLoop
 
-                    val item = ListItem(path, name, false, 0, child.size, child.modified, false, false)
-                    if (candidates.size < limit) {
-                        candidates.add(item)
-                    } else if (candidates.comparator().compare(item, candidates.peek()) > 0) {
-                        candidates.poll()
-                        candidates.add(item)
+                            val item = ListItem(path, name, false, 0, child.size, child.modified, false, false)
+                            if (candidates.size < limit) {
+                                candidates.add(item)
+                            } else if (candidates.comparator().compare(item, candidates.peek()) > 0) {
+                                candidates.poll()
+                                candidates.add(item)
+                            }
+                        } catch (_: Exception) {
+                            // A revoked or provider-specific child grant must not hide other readable files.
+                        }
                     }
                 }
+            } catch (_: Exception) {
+                // Skip only an inaccessible directory; continue traversing the rest of the granted tree.
             }
         }
 

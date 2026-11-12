@@ -27,6 +27,7 @@ import org.fossify.filemanager.adapters.DecompressItemsAdapter
 import org.fossify.filemanager.databinding.ActivityDecompressBinding
 import org.fossify.filemanager.extensions.config
 import org.fossify.filemanager.extensions.setLastModified
+import org.fossify.filemanager.helpers.ZipPathSafety
 import org.fossify.filemanager.models.ListItem
 import java.io.BufferedInputStream
 import java.io.File
@@ -171,12 +172,11 @@ class DecompressActivity : SimpleActivity() {
                         }
                     }
 
-                    val outputFile = File(newPath)
-
-                    val isVulnerableForZipPathTraversal = !outputFile.canonicalPath.startsWith(parent)
-                    if (isVulnerableForZipPathTraversal) {
+                    if (!ZipPathSafety.isInsideDirectory(parent, newPath)) {
                         continue
                     }
+
+                    val outputFile = File(newPath)
 
                     if (entry.isDirectory) {
                         if (!outputFile.exists()) {
