@@ -210,6 +210,7 @@ class MainActivity : SimpleActivity() {
             findItem(R.id.stop_showing_hidden).isVisible = config.temporarilyShowHidden && currentFragment !is StorageFragment
 
             findItem(R.id.column_count).isVisible = currentViewType == VIEW_TYPE_GRID && currentFragment !is StorageFragment
+            findItem(R.id.select_by_date_range).isVisible = currentFragment is RecentsFragment
 
             findItem(R.id.more_apps_from_us).isVisible = resources.getBoolean(R.bool.is_google_play_build)
             findItem(R.id.settings).isVisible = !isCreateDocumentIntent
@@ -250,6 +251,7 @@ class MainActivity : SimpleActivity() {
                     R.id.temporarily_show_hidden -> tryToggleTemporarilyShowHidden()
                     R.id.stop_showing_hidden -> tryToggleTemporarilyShowHidden()
                     R.id.column_count -> changeColumnCount()
+                    R.id.select_by_date_range -> (getCurrentFragment() as? RecentsFragment)?.showDateRangeSelectionDialog()
                     R.id.more_apps_from_us -> launchMoreAppsFromUsIntent()
                     R.id.settings -> launchSettings()
                     R.id.about -> launchAbout()

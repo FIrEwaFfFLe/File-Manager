@@ -17,6 +17,13 @@
     <string name="other_files">Other files</string>
     <string name="recent_limit_error">Enter a number from 1 to 10,000.</string>
     <string name="no_recent_types_enabled">Turn on at least one file type to show Recents.</string>
+    <string name="select_by_date_range">Select by date range</string>
+    <string name="date_range_starting_date">Starting date: %1$s</string>
+    <string name="date_range_ending_date">Ending date: %1$s</string>
+    <string name="select_files">Select files</string>
+    <string name="date_range_dates_required">Choose both a starting and ending date.</string>
+    <string name="date_range_start_after_end">The starting date must be on or before the ending date.</string>
+    <string name="no_files_in_selected_date_range">No files found in the selected date range.</string>
     <string name="show_recents">Show recents</string>
     <string name="invert_colors">Invert colors</string>
 

@@ -1159,6 +1159,32 @@ class ItemsAdapter(
         }
     }
 
+    /** Adds matching files from this adapter's currently displayed dataset to the normal selection. */
+    fun selectDisplayedItems(paths: Set<String>): Int {
+        if (paths.isEmpty()) return 0
+
+        val matchingPositions = listItems.indices.filter { index ->
+            val item = listItems[index]
+            !item.isSectionTitle && !item.isGridTypeDivider && paths.contains(item.path)
+        }
+        if (matchingPositions.isEmpty()) return 0
+        val positions = matchingPositions.filter { index ->
+            !selectedKeys.contains(listItems[index].path.hashCode())
+        }
+        if (positions.isEmpty()) return matchingPositions.size
+
+        val callback = actModeCallback
+        if (actMode == null && callback != null) {
+            activity.startActionMode(callback)
+        }
+
+        positions.forEachIndexed { index, position ->
+            // Refresh the action-mode count and menu once, after all new keys are applied.
+            toggleItemSelection(true, position, index == positions.lastIndex)
+        }
+        return matchingPositions.size
+    }
+
     fun updateFontSizes() {
         fontSize = activity.getTextSize()
         smallerFontSize = fontSize * 0.8f

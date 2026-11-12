@@ -1,19 +1,26 @@
 package org.fossify.filemanager.fragments
 
+import android.app.DatePickerDialog
 import android.content.ContentResolver
 import android.content.Context
 import android.provider.MediaStore.Files
 import android.provider.MediaStore.Files.FileColumns
 import android.util.AttributeSet
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.os.bundleOf
 import org.fossify.commons.extensions.areSystemAnimationsEnabled
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.getDoesFilePathExist
+import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.getFilenameFromPath
 import org.fossify.commons.extensions.getLongValue
 import org.fossify.commons.extensions.getStringValue
 import org.fossify.commons.extensions.normalizeString
 import org.fossify.commons.extensions.showErrorToast
+import org.fossify.commons.extensions.toast
 import org.fossify.commons.helpers.VIEW_TYPE_GRID
 import org.fossify.commons.helpers.VIEW_TYPE_LIST
 import org.fossify.commons.helpers.ensureBackgroundThread
@@ -29,9 +36,14 @@ import org.fossify.filemanager.extensions.config
 import org.fossify.filemanager.extensions.isPathInHiddenFolder
 import org.fossify.filemanager.helpers.MAX_COLUMN_COUNT
 import org.fossify.filemanager.helpers.RecentFileClassifier
+import org.fossify.filemanager.helpers.RecentDateRange
 import org.fossify.filemanager.interfaces.ItemOperationsListener
 import org.fossify.filemanager.models.ListItem
 import java.io.File
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
 class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPagerFragment<MyViewPagerFragment.RecentsInnerBinding>(context, attributeSet),
     ItemOperationsListener {
@@ -225,6 +237,112 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
 
     private fun getRecyclerAdapter() = binding.recentsList.adapter as? ItemsAdapter
 
+    fun showDateRangeSelectionDialog() {
+        val host = activity ?: return
+        val today = LocalDate.now()
+        var startDate: LocalDate? = today
+        var endDate: LocalDate? = today
+        val dateFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(Locale.getDefault())
+
+        val content = LinearLayout(host).apply {
+            orientation = LinearLayout.VERTICAL
+            val padding = (24 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding / 2, padding, 0)
+        }
+        val validation = TextView(host).apply {
+            setTextColor(host.getColor(org.fossify.commons.R.color.md_red_500))
+            visibility = TextView.GONE
+        }
+
+        // Keep the date controls separate; each opens a native calendar picker using the current value.
+        val startPicker = Button(host).apply {
+            isAllCaps = false
+        }
+        val endPicker = Button(host).apply {
+            isAllCaps = false
+        }
+        fun updateDateButton(button: Button, labelRes: Int, date: LocalDate) {
+            button.text = host.getString(labelRes, dateFormatter.format(date))
+        }
+        fun showPicker(button: Button, labelRes: Int, selectedDate: () -> LocalDate, update: (LocalDate) -> Unit) {
+            updateDateButton(button, labelRes, selectedDate())
+            button.setOnClickListener {
+                val date = selectedDate()
+                DatePickerDialog(host, { _, year, month, day ->
+                    update(LocalDate.of(year, month + 1, day))
+                }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+            }
+        }
+        showPicker(startPicker, R.string.date_range_starting_date, { startDate ?: today }) { selected ->
+            startDate = selected
+            updateDateButton(startPicker, R.string.date_range_starting_date, selected)
+            validation.visibility = TextView.GONE
+        }
+        showPicker(endPicker, R.string.date_range_ending_date, { endDate ?: today }) { selected ->
+            endDate = selected
+            updateDateButton(endPicker, R.string.date_range_ending_date, selected)
+            validation.visibility = TextView.GONE
+        }
+        content.addView(startPicker, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        content.addView(endPicker, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        content.addView(validation, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        val dialog = host.getAlertDialogBuilder()
+            .setTitle(R.string.select_by_date_range)
+            .setView(content)
+            .setNegativeButton(org.fossify.commons.R.string.cancel, null)
+            .setPositiveButton(R.string.select_files, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val start = startDate
+                val end = endDate
+                if (start == null || end == null) {
+                    validation.setText(R.string.date_range_dates_required)
+                    validation.visibility = TextView.VISIBLE
+                    return@setOnClickListener
+                }
+                if (start.isAfter(end)) {
+                    validation.setText(R.string.date_range_start_after_end)
+                    validation.visibility = TextView.VISIBLE
+                    return@setOnClickListener
+                }
+
+                val range = try {
+                    RecentDateRange.from(start, end)
+                } catch (_: IllegalArgumentException) {
+                    validation.setText(R.string.date_range_start_after_end)
+                    validation.visibility = TextView.VISIBLE
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                selectDisplayedFilesInRange(range)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun selectDisplayedFilesInRange(range: RecentDateRange) {
+        val adapter = getRecyclerAdapter() ?: return
+        // listItems is the adapter's effective dataset, already limited, classified, hidden-filtered,
+        // and (when active) search-filtered. Snapshot it on the UI thread, then check/filter off-thread.
+        val displayedSnapshot = adapter.listItems.toList()
+        ensureBackgroundThread {
+            val matchingPaths = displayedSnapshot.asSequence()
+                .filter { !it.isSectionTitle && !it.isGridTypeDivider && range.contains(it.modified) }
+                .filter { activity?.getDoesFilePathExist(it.path) == true }
+                .map { it.path }
+                .toSet()
+
+            activity?.runOnUiThread {
+                val selectedCount = getRecyclerAdapter()?.selectDisplayedItems(matchingPaths) ?: 0
+                if (selectedCount == 0) {
+                    activity?.toast(R.string.no_files_in_selected_date_range)
+                }
+            }
+        }
+    }
+
     override fun toggleFilenameVisibility() {
         getRecyclerAdapter()?.updateDisplayFilenamesInGrid()
     }
@@ -284,4 +402,5 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
     override fun finishActMode() {
         getRecyclerAdapter()?.finishActMode()
     }
+
 }
