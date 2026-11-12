@@ -139,6 +139,12 @@
         </activity>
 
         <activity
+            android:name=".activities.RecentsSettingsActivity"
+            android:exported="false"
+            android:label="@string/recents_settings"
+            android:parentActivityName=".activities.SettingsActivity" />
+
+        <activity
             android:name=".activities.FavoritesActivity"
             android:configChanges="orientation"
             android:exported="false"

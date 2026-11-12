@@ -9,6 +9,10 @@ import java.util.Locale
 
 class Config(context: Context) : BaseConfig(context) {
     companion object {
+        private const val RECENTS_LIMIT = "recents_limit"
+        private const val RECENTS_IMAGES = "recents_images"
+        private const val RECENTS_VIDEOS = "recents_videos"
+        private const val RECENTS_OTHER = "recents_other"
         fun newInstance(context: Context) = Config(context)
     }
 
@@ -21,6 +25,19 @@ class Config(context: Context) : BaseConfig(context) {
         set(temporarilyShowHidden) = prefs.edit().putBoolean(TEMPORARILY_SHOW_HIDDEN, temporarilyShowHidden).apply()
 
     fun shouldShowHidden() = showHidden || temporarilyShowHidden
+
+    var recentsLimit: Int
+        get() = prefs.getInt(RECENTS_LIMIT, 1000).coerceIn(1, 10000)
+        set(value) { prefs.edit().putInt(RECENTS_LIMIT, value.coerceIn(1, 10000)).apply() }
+    var recentsImages: Boolean
+        get() = prefs.getBoolean(RECENTS_IMAGES, true)
+        set(value) { prefs.edit().putBoolean(RECENTS_IMAGES, value).apply() }
+    var recentsVideos: Boolean
+        get() = prefs.getBoolean(RECENTS_VIDEOS, true)
+        set(value) { prefs.edit().putBoolean(RECENTS_VIDEOS, value).apply() }
+    var recentsOther: Boolean
+        get() = prefs.getBoolean(RECENTS_OTHER, true)
+        set(value) { prefs.edit().putBoolean(RECENTS_OTHER, value).apply() }
 
     var pressBackTwice: Boolean
         get() = prefs.getBoolean(PRESS_BACK_TWICE, true)

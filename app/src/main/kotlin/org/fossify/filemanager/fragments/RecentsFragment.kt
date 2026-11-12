@@ -27,13 +27,14 @@ import org.fossify.filemanager.databinding.RecentsFragmentBinding
 import org.fossify.filemanager.extensions.config
 import org.fossify.filemanager.extensions.isPathInHiddenFolder
 import org.fossify.filemanager.helpers.MAX_COLUMN_COUNT
+import org.fossify.filemanager.helpers.RecentFileClassifier
 import org.fossify.filemanager.interfaces.ItemOperationsListener
 import org.fossify.filemanager.models.ListItem
 import java.io.File
 
 class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPagerFragment<MyViewPagerFragment.RecentsInnerBinding>(context, attributeSet),
     ItemOperationsListener {
-    private val RECENTS_LIMIT = 50
+    private val QUERY_PAGE_SIZE = 500
     private var filesIgnoringSearch = ArrayList<ListItem>()
     private var lastSearchedText = ""
     private var zoomListener: MyRecyclerView.MyZoomListener? = null
@@ -61,6 +62,7 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
                     recentsSwipeRefresh.isRefreshing = false
                     recentsList.beVisibleIf(recents.isNotEmpty())
                     recentsPlaceholder.beVisibleIf(recents.isEmpty())
+                    recentsPlaceholder.setText(if (context?.config?.let { !it.recentsImages && !it.recentsVideos && !it.recentsOther } == true) R.string.no_recent_types_enabled else R.string.no_items_found)
                 }
                 filesIgnoringSearch = recents
                 addItems(recents, false)
@@ -99,6 +101,7 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
         }
 
         binding.recentsSwipeRefresh.isEnabled = lastSearchedText.isEmpty() && activity?.config?.enablePullToRefresh != false
+        refreshFragment()
     }
 
     private fun setupLayoutManager() {
@@ -152,6 +155,11 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
 
     private fun getRecents(callback: (recents: ArrayList<ListItem>) -> Unit) {
         val showHidden = context?.config?.shouldShowHidden() ?: return
+        val config = context?.config ?: return
+        if (!config.recentsImages && !config.recentsVideos && !config.recentsOther) {
+            activity?.runOnUiThread { callback(arrayListOf()) }
+            return
+        }
         val listItems = arrayListOf<ListItem>()
 
         val uri = Files.getContentUri("external")
@@ -159,19 +167,24 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
             FileColumns.DATA,
             FileColumns.DISPLAY_NAME,
             FileColumns.DATE_MODIFIED,
-            FileColumns.SIZE
+            FileColumns.SIZE,
+            FileColumns.MIME_TYPE
         )
 
         try {
-            val queryArgs = bundleOf(
-                ContentResolver.QUERY_ARG_LIMIT to RECENTS_LIMIT,
-                ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(FileColumns.DATE_MODIFIED),
-                ContentResolver.QUERY_ARG_SORT_DIRECTION to ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
-            )
-
-            context?.contentResolver?.query(uri, projection, queryArgs, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    do {
+            var offset = 0
+            var exhausted = false
+            while (!exhausted && listItems.size < config.recentsLimit) {
+                val queryArgs = bundleOf(
+                    ContentResolver.QUERY_ARG_LIMIT to QUERY_PAGE_SIZE,
+                    ContentResolver.QUERY_ARG_OFFSET to offset,
+                    ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(FileColumns.DATE_MODIFIED),
+                    ContentResolver.QUERY_ARG_SORT_DIRECTION to ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+                )
+                var rowCount = 0
+                context?.contentResolver?.query(uri, projection, queryArgs, null)?.use { cursor ->
+                    while (cursor.moveToNext() && listItems.size < config.recentsLimit) {
+                        rowCount++
                         val path = cursor.getStringValue(FileColumns.DATA)
                         if (File(path).isDirectory) {
                             continue
@@ -182,14 +195,23 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
                         val modified = cursor.getLongValue(FileColumns.DATE_MODIFIED) * 1000
                         val isHiddenFile = name.startsWith(".")
                         val shouldShow = showHidden || (!isHiddenFile && !path.isPathInHiddenFolder())
-                        if (shouldShow && activity?.getDoesFilePathExist(path) == true) {
+                        val mimeType = cursor.getStringValue(FileColumns.MIME_TYPE)
+                        val type = RecentFileClassifier.classify(path, mimeType)
+                        val included = when (type) {
+                            RecentFileClassifier.Type.IMAGE -> config.recentsImages
+                            RecentFileClassifier.Type.VIDEO -> config.recentsVideos
+                            RecentFileClassifier.Type.OTHER -> config.recentsOther
+                        }
+                        if (included && shouldShow && activity?.getDoesFilePathExist(path) == true) {
                             if (wantedMimeTypes.any { isProperMimeType(it, path, false) }) {
                                 val fileDirItem = ListItem(path, name, false, 0, size, modified, false, false)
                                 listItems.add(fileDirItem)
                             }
                         }
-                    } while (cursor.moveToNext())
+                    }
                 }
+                exhausted = rowCount < QUERY_PAGE_SIZE
+                offset += rowCount
             }
         } catch (e: Exception) {
             activity?.showErrorToast(e)

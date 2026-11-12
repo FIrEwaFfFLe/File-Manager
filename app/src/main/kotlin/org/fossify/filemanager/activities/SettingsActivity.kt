@@ -38,6 +38,7 @@ class SettingsActivity : SimpleActivity() {
         setupLanguage()
         setupManageFavorites()
         setupManageShownTabs()
+        setupRecentsSettings()
         setupChangeDateTimeFormat()
         setupFontSize()
         setupShowHidden()
@@ -102,6 +103,12 @@ class SettingsActivity : SimpleActivity() {
     private fun setupManageShownTabs() {
         binding.settingsManageTabsHolder.setOnClickListener {
             ManageVisibleTabsDialog(this)
+        }
+    }
+
+    private fun setupRecentsSettings() {
+        binding.settingsRecentsHolder.setOnClickListener {
+            startActivity(Intent(this, RecentsSettingsActivity::class.java))
         }
     }
 
