@@ -36,6 +36,16 @@
                 <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_other"
                     style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/other_files" />
             </RelativeLayout>
+            <TextView style="@style/SettingsSectionLabelStyle" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="@string/storage_sources" />
+            <RelativeLayout android:id="@+id/recents_internal_storage_holder" style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_internal_storage"
+                    style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/internal_storage" />
+            </RelativeLayout>
+            <RelativeLayout android:id="@+id/recents_usb_storage_holder" style="@style/SettingsHolderSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content">
+                <org.fossify.commons.views.MyMaterialSwitch android:id="@+id/recents_usb_storage"
+                    style="@style/SettingsSwitchStyle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/usb_storage" />
+            </RelativeLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

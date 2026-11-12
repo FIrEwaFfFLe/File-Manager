@@ -23,12 +23,18 @@ class RecentsSettingsActivity : SimpleActivity() {
         binding.recentsImages.isChecked = config.recentsImages
         binding.recentsVideos.isChecked = config.recentsVideos
         binding.recentsOther.isChecked = config.recentsOther
+        binding.recentsInternalStorage.isChecked = config.recentsInternalStorage
+        binding.recentsUsbStorage.isChecked = config.recentsUsbStorage
         binding.recentsImagesHolder.setOnClickListener { binding.recentsImages.toggle() }
         binding.recentsVideosHolder.setOnClickListener { binding.recentsVideos.toggle() }
         binding.recentsOtherHolder.setOnClickListener { binding.recentsOther.toggle() }
+        binding.recentsInternalStorageHolder.setOnClickListener { binding.recentsInternalStorage.toggle() }
+        binding.recentsUsbStorageHolder.setOnClickListener { binding.recentsUsbStorage.toggle() }
         binding.recentsImages.setOnCheckedChangeListener { _, value -> config.recentsImages = value }
         binding.recentsVideos.setOnCheckedChangeListener { _, value -> config.recentsVideos = value }
         binding.recentsOther.setOnCheckedChangeListener { _, value -> config.recentsOther = value }
+        binding.recentsInternalStorage.setOnCheckedChangeListener { _, value -> config.recentsInternalStorage = value }
+        binding.recentsUsbStorage.setOnCheckedChangeListener { _, value -> config.recentsUsbStorage = value }
         updateLimit()
         updateTextColors(binding.root)
         binding.recentsLimitLabel.setTextColor(getProperPrimaryColor())

@@ -14,10 +14,13 @@ import androidx.core.os.bundleOf
 import org.fossify.commons.extensions.areSystemAnimationsEnabled
 import org.fossify.commons.extensions.beVisibleIf
 import org.fossify.commons.extensions.getDoesFilePathExist
+import org.fossify.commons.extensions.getDocumentFile
 import org.fossify.commons.extensions.getAlertDialogBuilder
 import org.fossify.commons.extensions.getFilenameFromPath
 import org.fossify.commons.extensions.getLongValue
 import org.fossify.commons.extensions.getStringValue
+import org.fossify.commons.extensions.getOTGItems
+import org.fossify.commons.extensions.hasOTGConnected
 import org.fossify.commons.extensions.normalizeString
 import org.fossify.commons.extensions.showErrorToast
 import org.fossify.commons.extensions.toast
@@ -37,12 +40,16 @@ import org.fossify.filemanager.extensions.isPathInHiddenFolder
 import org.fossify.filemanager.helpers.MAX_COLUMN_COUNT
 import org.fossify.filemanager.helpers.RecentFileClassifier
 import org.fossify.filemanager.helpers.RecentDateRange
+import org.fossify.filemanager.helpers.RecentStorageSource
+import org.fossify.filemanager.helpers.RecentStorageSourceResolver
 import org.fossify.filemanager.interfaces.ItemOperationsListener
 import org.fossify.filemanager.models.ListItem
 import java.io.File
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.ArrayDeque
+import java.util.PriorityQueue
 import java.util.Locale
 
 class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPagerFragment<MyViewPagerFragment.RecentsInnerBinding>(context, attributeSet),
@@ -169,70 +176,157 @@ class RecentsFragment(context: Context, attributeSet: AttributeSet) : MyViewPage
     private fun getRecents(callback: (recents: ArrayList<ListItem>) -> Unit) {
         val showHidden = context?.config?.shouldShowHidden() ?: return
         val config = context?.config ?: return
+        val host = activity ?: return
         if (!config.recentsImages && !config.recentsVideos && !config.recentsOther) {
             activity?.runOnUiThread { callback(arrayListOf()) }
             return
         }
-        val listItems = arrayListOf<ListItem>()
-
-        val uri = Files.getContentUri("external")
-        val projection = arrayOf(
-            FileColumns.DATA,
-            FileColumns.DISPLAY_NAME,
-            FileColumns.DATE_MODIFIED,
-            FileColumns.SIZE,
-            FileColumns.MIME_TYPE
-        )
-
-        try {
-            var offset = 0
-            var exhausted = false
-            while (!exhausted && listItems.size < config.recentsLimit) {
-                val queryArgs = bundleOf(
-                    ContentResolver.QUERY_ARG_LIMIT to QUERY_PAGE_SIZE,
-                    ContentResolver.QUERY_ARG_OFFSET to offset,
-                    ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(FileColumns.DATE_MODIFIED),
-                    ContentResolver.QUERY_ARG_SORT_DIRECTION to ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+        val limit = config.recentsLimit
+        val internalItems = arrayListOf<ListItem>()
+        val seenInternalPaths = HashSet<String>()
+        if (config.recentsInternalStorage) {
+            try {
+                val uri = Files.getContentUri("external")
+                val projection = arrayOf(
+                    FileColumns.DATA,
+                    FileColumns.DISPLAY_NAME,
+                    FileColumns.DATE_MODIFIED,
+                    FileColumns.SIZE,
+                    FileColumns.MIME_TYPE
                 )
-                var rowCount = 0
-                context?.contentResolver?.query(uri, projection, queryArgs, null)?.use { cursor ->
-                    while (cursor.moveToNext() && listItems.size < config.recentsLimit) {
-                        rowCount++
-                        val path = cursor.getStringValue(FileColumns.DATA)
-                        if (File(path).isDirectory) {
-                            continue
-                        }
 
-                        val name = cursor.getStringValue(FileColumns.DISPLAY_NAME) ?: path.getFilenameFromPath()
-                        val size = cursor.getLongValue(FileColumns.SIZE)
-                        val modified = cursor.getLongValue(FileColumns.DATE_MODIFIED) * 1000
-                        val isHiddenFile = name.startsWith(".")
-                        val shouldShow = showHidden || (!isHiddenFile && !path.isPathInHiddenFolder())
-                        val mimeType = cursor.getStringValue(FileColumns.MIME_TYPE)
-                        val type = RecentFileClassifier.classify(path, mimeType)
-                        val included = when (type) {
-                            RecentFileClassifier.Type.IMAGE -> config.recentsImages
-                            RecentFileClassifier.Type.VIDEO -> config.recentsVideos
-                            RecentFileClassifier.Type.OTHER -> config.recentsOther
-                        }
-                        if (included && shouldShow && activity?.getDoesFilePathExist(path) == true) {
-                            if (wantedMimeTypes.any { isProperMimeType(it, path, false) }) {
-                                val fileDirItem = ListItem(path, name, false, 0, size, modified, false, false)
-                                listItems.add(fileDirItem)
+                var offset = 0
+                var exhausted = false
+                while (!exhausted && internalItems.size < limit) {
+                    val queryArgs = bundleOf(
+                        ContentResolver.QUERY_ARG_LIMIT to QUERY_PAGE_SIZE,
+                        ContentResolver.QUERY_ARG_OFFSET to offset,
+                        ContentResolver.QUERY_ARG_SORT_COLUMNS to arrayOf(FileColumns.DATE_MODIFIED),
+                        ContentResolver.QUERY_ARG_SORT_DIRECTION to ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+                    )
+                    var rowCount = 0
+                    context.contentResolver.query(uri, projection, queryArgs, null)?.use { cursor ->
+                        while (cursor.moveToNext() && internalItems.size < limit) {
+                            rowCount++
+                            val path = cursor.getStringValue(FileColumns.DATA)
+                            if (path.isNullOrBlank() || RecentStorageSourceResolver.classify(
+                                    path, config.internalStoragePath, config.OTGPath
+                                ) != RecentStorageSource.INTERNAL || File(path).isDirectory
+                            ) {
+                                continue
                             }
+
+                            val name = cursor.getStringValue(FileColumns.DISPLAY_NAME) ?: path.getFilenameFromPath()
+                            val isHiddenFile = name.startsWith(".")
+                            val shouldShow = showHidden || (!isHiddenFile && !path.isPathInHiddenFolder())
+                            val mimeType = cursor.getStringValue(FileColumns.MIME_TYPE)
+                            val type = RecentFileClassifier.classify(path, mimeType)
+                            val included = when (type) {
+                                RecentFileClassifier.Type.IMAGE -> config.recentsImages
+                                RecentFileClassifier.Type.VIDEO -> config.recentsVideos
+                                RecentFileClassifier.Type.OTHER -> config.recentsOther
+                            }
+                            if (!included || !shouldShow || host.getDoesFilePathExist(path) != true ||
+                                !wantedMimeTypes.any { isProperMimeType(it, path, false) } ||
+                                !seenInternalPaths.add(path)
+                            ) {
+                                continue
+                            }
+
+                            val filesystemModified = cursor.getLongValue(FileColumns.DATE_MODIFIED) * 1000L
+                            internalItems.add(
+                                ListItem(path, name, false, 0, cursor.getLongValue(FileColumns.SIZE), filesystemModified, false, false)
+                            )
                         }
                     }
+                    exhausted = rowCount < QUERY_PAGE_SIZE
+                    offset += rowCount
                 }
-                exhausted = rowCount < QUERY_PAGE_SIZE
-                offset += rowCount
+            } catch (e: Exception) {
+                // Internal MediaStore access is independent from the separately granted OTG tree.
+                host.showErrorToast(e)
             }
-        } catch (e: Exception) {
-            activity?.showErrorToast(e)
         }
 
-        activity?.runOnUiThread {
-            callback(listItems)
+        val usbItems = if (config.recentsUsbStorage) {
+            try {
+                collectUsbRecents(host, config.OTGPath, showHidden, limit, config.recentsImages, config.recentsVideos, config.recentsOther)
+            } catch (e: Exception) {
+                host.showErrorToast(e)
+                emptyList()
+            }
+        } else {
+            emptyList()
         }
+        val merged = (internalItems + usbItems)
+            .distinctBy { it.path }
+            .sortedWith(compareByDescending<ListItem> { it.modified }.thenBy { it.path })
+            .take(limit)
+        val listItems = ArrayList(merged)
+
+        activity?.runOnUiThread { callback(listItems) }
+    }
+
+    /** OTG files are not reliably indexed by MediaStore, so walk the granted Fossify OTG tree. */
+    private fun collectUsbRecents(
+        host: SimpleActivity,
+        usbRoot: String,
+        showHidden: Boolean,
+        limit: Int,
+        includeImages: Boolean,
+        includeVideos: Boolean,
+        includeOther: Boolean
+    ): List<ListItem> {
+        if (usbRoot.isBlank() || host.config.OTGTreeUri.isBlank() || !host.hasOTGConnected()) return emptyList()
+
+        val candidates = PriorityQueue<ListItem>(
+            compareBy<ListItem> { it.modified }.thenByDescending { it.path }
+        )
+        val queuedPaths = HashSet<String>()
+        val pendingDirectories = ArrayDeque<String>()
+        pendingDirectories.add(usbRoot.trimEnd('/'))
+
+        while (pendingDirectories.isNotEmpty()) {
+            val directoryPath = pendingDirectories.removeFirst()
+            if (!queuedPaths.add(directoryPath)) continue
+
+            host.getOTGItems(directoryPath, showHidden, false) { children ->
+                children.forEach { child ->
+                    val source = RecentStorageSourceResolver.classify(child.path, host.config.internalStoragePath, usbRoot)
+                    if (source != RecentStorageSource.USB) return@forEach
+                    if (child.isDirectory) {
+                        pendingDirectories.addLast(child.path)
+                        return@forEach
+                    }
+
+                    val path = child.path
+                    val name = child.name
+                    if ((!showHidden && name.startsWith(".")) || child.modified <= 0L ||
+                        host.getDocumentFile(path)?.canRead() != true ||
+                        !wantedMimeTypes.any { isProperMimeType(it, path, false) }
+                    ) {
+                        return@forEach
+                    }
+                    val type = RecentFileClassifier.classify(path, null)
+                    val included = when (type) {
+                        RecentFileClassifier.Type.IMAGE -> includeImages
+                        RecentFileClassifier.Type.VIDEO -> includeVideos
+                        RecentFileClassifier.Type.OTHER -> includeOther
+                    }
+                    if (!included) return@forEach
+
+                    val item = ListItem(path, name, false, 0, child.size, child.modified, false, false)
+                    if (candidates.size < limit) {
+                        candidates.add(item)
+                    } else if (candidates.comparator().compare(item, candidates.peek()) > 0) {
+                        candidates.poll()
+                        candidates.add(item)
+                    }
+                }
+            }
+        }
+
+        return candidates.toList().sortedWith(compareByDescending<ListItem> { it.modified }.thenBy { it.path })
     }
 
     private fun getRecyclerAdapter() = binding.recentsList.adapter as? ItemsAdapter

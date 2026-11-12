@@ -13,6 +13,8 @@ class Config(context: Context) : BaseConfig(context) {
         private const val RECENTS_IMAGES = "recents_images"
         private const val RECENTS_VIDEOS = "recents_videos"
         private const val RECENTS_OTHER = "recents_other"
+        private const val RECENTS_INTERNAL_STORAGE = "recents_internal_storage"
+        private const val RECENTS_USB_STORAGE = "recents_usb_storage"
         fun newInstance(context: Context) = Config(context)
     }
 
@@ -38,6 +40,12 @@ class Config(context: Context) : BaseConfig(context) {
     var recentsOther: Boolean
         get() = prefs.getBoolean(RECENTS_OTHER, true)
         set(value) { prefs.edit().putBoolean(RECENTS_OTHER, value).apply() }
+    var recentsInternalStorage: Boolean
+        get() = prefs.getBoolean(RECENTS_INTERNAL_STORAGE, true)
+        set(value) { prefs.edit().putBoolean(RECENTS_INTERNAL_STORAGE, value).apply() }
+    var recentsUsbStorage: Boolean
+        get() = prefs.getBoolean(RECENTS_USB_STORAGE, false)
+        set(value) { prefs.edit().putBoolean(RECENTS_USB_STORAGE, value).apply() }
 
     var pressBackTwice: Boolean
         get() = prefs.getBoolean(PRESS_BACK_TWICE, true)
